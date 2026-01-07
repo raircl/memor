@@ -87,6 +87,17 @@ export default function PhotoboothScreen() {
 
   const processAndPrint = async (imageUri: string) => {
     try {
+      // Get list of USB printers
+      const printers = await EscPosPrinter.discover({
+        type: EscPosPrinter.PrinterTypes.USB,
+      });
+
+      if (printers.length === 0) {
+        throw new Error('No printer found');
+      }
+
+      const printer = printers[0];
+
       // Resize image to fit thermal printer width (384 pixels for 80mm printer)
       const manipResult = await manipulateAsync(
         imageUri,
@@ -110,20 +121,36 @@ export default function PhotoboothScreen() {
       });
 
       // Print receipt with timestamp and image
-      await USBPrinter.printText("\n");
-      await USBPrinter.printText("<C>PHOTO RECEIPT</C>\n");
-      await USBPrinter.printText("<C>================</C>\n");
-      await USBPrinter.printText(`<C>${timestamp}</C>\n`);
-      await USBPrinter.printText("<C>================</C>\n\n");
-      
-      // Print the image
-      await USBPrinter.printImage(manipResult.base64, {
-        imageWidth: 384,
-        imageHeight: manipResult.height,
+      await EscPosPrinter.printFormattedText({
+        printerAddress: printer.address,
+        printerType: EscPosPrinter.PrinterTypes.USB,
+        text: [
+          { text: '\n' },
+          { text: 'PHOTO RECEIPT\n', align: 'center', fontFamily: 'A', fontSize: 2 },
+          { text: '================\n', align: 'center' },
+          { text: `${timestamp}\n`, align: 'center' },
+          { text: '================\n', align: 'center' },
+          { text: '\n' },
+        ],
       });
-      
-      await USBPrinter.printText("\n\n\n");
-      await USBPrinter.printBill("\n");
+
+      // Print the image
+      await EscPosPrinter.printImage({
+        printerAddress: printer.address,
+        printerType: EscPosPrinter.PrinterTypes.USB,
+        imageBase64: manipResult.base64,
+        imageWidth: 384,
+      });
+
+      // Feed paper and cut
+      await EscPosPrinter.printFormattedText({
+        printerAddress: printer.address,
+        printerType: EscPosPrinter.PrinterTypes.USB,
+        text: [
+          { text: '\n\n\n' },
+        ],
+        cutPaper: true,
+      });
 
       Alert.alert('Success', 'Photo printed successfully!');
 
