@@ -11,7 +11,11 @@ import {
 } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import EscPosPrinter from 'react-native-esc-pos-printer';
+import {
+  USBPrinter,
+  NetPrinter,
+  BLEPrinter,
+} from 'react-native-thermal-receipt-printer';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -34,23 +38,24 @@ export default function PhotoboothScreen() {
     }
 
     try {
-      const printers = await EscPosPrinter.discover({
-        type: EscPosPrinter.PrinterTypes.USB,
-      });
+      const printers = await USBPrinter.getDeviceList();
       
       if (printers.length === 0) {
-        setPrinterInfo('No USB printer detected. Please connect your XP T80A printer via USB OTG cable.');
+        setPrinterInfo('No USB printer detected. Please connect your XP T80A printer via USB OTG cable and tap the reconnect button.');
+        setPrinterConnected(false);
         return;
       }
 
       // Connect to the first available USB printer
       const printer = printers[0];
+      await USBPrinter.connectPrinter(printer.vendor_id, printer.product_id);
       setPrinterConnected(true);
-      setPrinterInfo(`Printer connected: ${printer.name || 'XP T80A'}`);
+      setPrinterInfo(`Printer Ready: ${printer.device_name || 'XP T80A'}`);
       
     } catch (error) {
       console.error('Printer initialization error:', error);
-      setPrinterInfo('Failed to connect to printer. Make sure USB OTG cable is connected.');
+      setPrinterInfo('Failed to connect. Ensure USB OTG cable is connected and tap reconnect.');
+      setPrinterConnected(false);
     }
   };
 
@@ -87,17 +92,6 @@ export default function PhotoboothScreen() {
 
   const processAndPrint = async (imageUri: string) => {
     try {
-      // Get list of USB printers
-      const printers = await EscPosPrinter.discover({
-        type: EscPosPrinter.PrinterTypes.USB,
-      });
-
-      if (printers.length === 0) {
-        throw new Error('No printer found');
-      }
-
-      const printer = printers[0];
-
       // Resize image to fit thermal printer width (384 pixels for 80mm printer)
       const manipResult = await manipulateAsync(
         imageUri,
@@ -120,43 +114,22 @@ export default function PhotoboothScreen() {
         hour12: true,
       });
 
-      // Print receipt with timestamp and image
-      await EscPosPrinter.printFormattedText({
-        printerAddress: printer.address,
-        printerType: EscPosPrinter.PrinterTypes.USB,
-        text: [
-          { text: '\n' },
-          { text: 'PHOTO RECEIPT\n', align: 'center', fontFamily: 'A', fontSize: 2 },
-          { text: '================\n', align: 'center' },
-          { text: `${timestamp}\n`, align: 'center' },
-          { text: '================\n', align: 'center' },
-          { text: '\n' },
-        ],
-      });
+      // Build receipt with timestamp header and photo
+      const receiptData = `[C]<b>PHOTO RECEIPT</b>\n` +
+        `[C]================\n` +
+        `[C]${timestamp}\n` +
+        `[C]================\n\n` +
+        `[C]<img>${manipResult.base64}</img>\n\n\n`;
 
-      // Print the image
-      await EscPosPrinter.printImage({
-        printerAddress: printer.address,
-        printerType: EscPosPrinter.PrinterTypes.USB,
-        imageBase64: manipResult.base64,
-        imageWidth: 384,
-      });
+      // Print to USB printer
+      await USBPrinter.printText(receiptData);
+      await USBPrinter.printBill('\n');
 
-      // Feed paper and cut
-      await EscPosPrinter.printFormattedText({
-        printerAddress: printer.address,
-        printerType: EscPosPrinter.PrinterTypes.USB,
-        text: [
-          { text: '\n\n\n' },
-        ],
-        cutPaper: true,
-      });
-
-      Alert.alert('Success', 'Photo printed successfully!');
+      Alert.alert('Success!', 'Photo printed successfully!');
 
     } catch (error) {
       console.error('Print error:', error);
-      Alert.alert('Print Error', 'Failed to print photo. Please check printer connection.');
+      Alert.alert('Print Error', `Failed to print photo. ${error.message || 'Please check printer connection.'}`);
       throw error;
     }
   };
@@ -172,7 +145,7 @@ export default function PhotoboothScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.permissionContainer}>
-        <Text style={styles.permissionText}>Camera permission is required</Text>
+        <Text style={styles.permissionText}>Camera permission is required to take photos</Text>
         <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
           <Text style={styles.permissionButtonText}>Grant Permission</Text>
         </TouchableOpacity>
@@ -211,6 +184,7 @@ export default function PhotoboothScreen() {
               <View style={[styles.corner, styles.topRight]} />
               <View style={[styles.corner, styles.bottomLeft]} />
               <View style={[styles.corner, styles.bottomRight]} />
+              <Text style={styles.frameText}>Position yourself here</Text>
             </View>
           </View>
 
@@ -220,7 +194,7 @@ export default function PhotoboothScreen() {
               style={styles.flipButton}
               onPress={() => setFacing(current => (current === 'back' ? 'front' : 'back'))}
             >
-              <Text style={styles.flipButtonText}>🔄</Text>
+              <Text style={styles.buttonIcon}>🔄</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -239,12 +213,13 @@ export default function PhotoboothScreen() {
               style={styles.reconnectButton}
               onPress={initPrinter}
             >
-              <Text style={styles.reconnectButtonText}>🔌</Text>
+              <Text style={styles.buttonIcon}>🔌</Text>
             </TouchableOpacity>
           </View>
 
           {isPrinting && (
             <View style={styles.printingOverlay}>
+              <ActivityIndicator size="large" color="#fff" />
               <Text style={styles.printingText}>Printing...</Text>
             </View>
           )}
@@ -297,15 +272,15 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#fff',
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 'bold',
     textAlign: 'center',
-    textShadow: '0px 2px 4px rgba(0, 0, 0, 0.75)',
+    letterSpacing: 2,
   },
   printerStatus: {
-    marginTop: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 20,
   },
   printerStatusText: {
@@ -315,11 +290,11 @@ const styles = StyleSheet.create({
   },
   printerInfo: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 13,
     textAlign: 'center',
-    marginTop: 8,
-    opacity: 0.9,
-    textShadow: '0px 1px 3px rgba(0, 0, 0, 0.75)',
+    marginTop: 12,
+    paddingHorizontal: 20,
+    opacity: 0.95,
   },
   centerContainer: {
     flex: 1,
@@ -327,39 +302,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   frameGuide: {
-    width: 280,
-    height: 360,
+    width: 300,
+    height: 380,
     position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  frameText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+    opacity: 0.8,
   },
   corner: {
     position: 'absolute',
-    width: 40,
-    height: 40,
+    width: 50,
+    height: 50,
     borderColor: '#fff',
+    borderWidth: 4,
   },
   topLeft: {
     top: 0,
     left: 0,
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
   },
   topRight: {
     top: 0,
     right: 0,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
+    borderLeftWidth: 0,
+    borderBottomWidth: 0,
   },
   bottomLeft: {
     bottom: 0,
     left: 0,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
   },
   bottomRight: {
     bottom: 0,
     right: 0,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
+    borderLeftWidth: 0,
+    borderTopWidth: 0,
   },
   controls: {
     flexDirection: 'row',
@@ -369,49 +353,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   flipButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: '#fff',
   },
-  flipButtonText: {
-    fontSize: 28,
+  buttonIcon: {
+    fontSize: 32,
   },
   captureButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 4,
+    borderWidth: 5,
     borderColor: '#fff',
   },
   captureButtonDisabled: {
     opacity: 0.5,
   },
   captureButtonInner: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: '#fff',
   },
   reconnectButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: '#fff',
-  },
-  reconnectButtonText: {
-    fontSize: 28,
   },
   printingOverlay: {
     position: 'absolute',
