@@ -319,9 +319,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     opacity: 0.9,
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
+    textShadow: '0px 1px 3px rgba(0, 0, 0, 0.75)',
   },
   centerContainer: {
     flex: 1,
