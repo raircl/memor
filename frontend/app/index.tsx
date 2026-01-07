@@ -468,10 +468,10 @@ const styles = StyleSheet.create({
   },
   grayscaleOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'transparent',
-    // Note: React Native doesn't support CSS filters directly
-    // The grayscale effect will be applied during image processing
-    // For live preview, we're showing color but will convert to B&W when printing
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    // Subtle white overlay to give a desaturated/vintage look
+    // Approximates grayscale appearance in live preview
+    // Full B&W conversion happens during capture
   },
   countdownOverlay: {
     ...StyleSheet.absoluteFillObject,
