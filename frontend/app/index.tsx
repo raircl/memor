@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { USBPrinter } from 'react-native-thermal-receipt-printer-image-qr';
+import EscPosPrinter from 'react-native-esc-pos-printer';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
