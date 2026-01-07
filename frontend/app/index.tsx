@@ -34,19 +34,19 @@ export default function PhotoboothScreen() {
     }
 
     try {
-      await USBPrinter.init();
-      const printers = await USBPrinter.getDeviceList();
+      const printers = await EscPosPrinter.discover({
+        type: EscPosPrinter.PrinterTypes.USB,
+      });
       
       if (printers.length === 0) {
         setPrinterInfo('No USB printer detected. Please connect your XP T80A printer via USB OTG cable.');
         return;
       }
 
-      // Connect to the first available printer (XP T80A)
+      // Connect to the first available USB printer
       const printer = printers[0];
-      await USBPrinter.connectPrinter(printer.vendorId, printer.productId);
       setPrinterConnected(true);
-      setPrinterInfo(`Printer connected: ${printer.deviceName || 'XP T80A'}`);
+      setPrinterInfo(`Printer connected: ${printer.name || 'XP T80A'}`);
       
     } catch (error) {
       console.error('Printer initialization error:', error);
